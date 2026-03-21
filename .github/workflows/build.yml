@@ -79,11 +79,7 @@ jobs:
         cd workspace
         if [ -f vendor/twrp/build/tasks/kernel.mk ]; then
           echo "=== Patching kernel.mk ==="
-          echo "Line 594 before patch:"
-          sed -n '590,598p' vendor/twrp/build/tasks/kernel.mk
           sed -i '594d' vendor/twrp/build/tasks/kernel.mk
-          echo "Line 594 after patch:"
-          sed -n '590,598p' vendor/twrp/build/tasks/kernel.mk
         fi
 
     - name: Fix missing ninja dependencies
@@ -109,12 +105,30 @@ jobs:
             touch out/target/product/NX809J/${dir}/SHARED_LIBRARIES/${lib}_intermediates/${lib}.so.toc
           done
         done
-    - name: Fix fscrypt policy mismatch in libtar
+
+    - name: Fix fscrypt v1/v2 mismatch in libtar
       run: |
         cd workspace
-        sed -i 's/-Werror/-Wno-error/g' bootable/recovery/libtar/Android.mk 2>/dev/null || true
-        sed -i 's/-Werror/-Wno-error/g' bootable/recovery/libtar/Android.bp 2>/dev/null || true
-        
+        # The issue: libtar header defines fep as fscrypt_policy_v1 but vold headers expect v2
+        # Fix by changing the struct type in libtar's header and source
+        if [ -f bootable/recovery/libtar/include/libtar/libtar.h ]; then
+          echo "=== Patching libtar header ==="
+          sed -i 's/struct fscrypt_policy_v1/struct fscrypt_policy_v2/g' bootable/recovery/libtar/include/libtar/libtar.h
+          grep -n "fscrypt_policy" bootable/recovery/libtar/include/libtar/libtar.h || true
+        fi
+        # Also patch the define if it aliases v1
+        if [ -f bootable/recovery/libtar/include/libtar/libtar.h ]; then
+          sed -i 's/#define fscrypt_policy fscrypt_policy_v1/#define fscrypt_policy fscrypt_policy_v2/g' bootable/recovery/libtar/include/libtar/libtar.h
+        fi
+        # Patch append.c directly if needed
+        if [ -f bootable/recovery/libtar/append.c ]; then
+          sed -i 's/struct fscrypt_policy_v1/struct fscrypt_policy_v2/g' bootable/recovery/libtar/append.c
+        fi
+        # Patch extract.c too
+        if [ -f bootable/recovery/libtar/extract.c ]; then
+          sed -i 's/struct fscrypt_policy_v1/struct fscrypt_policy_v2/g' bootable/recovery/libtar/extract.c
+        fi
+
     - name: Building TWRP
       run: |
         cd workspace
