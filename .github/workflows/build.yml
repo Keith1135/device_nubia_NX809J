@@ -62,8 +62,8 @@ jobs:
       run: |
         cd workspace/device/nubia/NX809J
         echo "=== Kernel ==="
-        file prebuilt/Image
-        ls -lh prebuilt/Image
+        file prebuilt/kernel
+        ls -lh prebuilt/kernel
         echo "=== DTB ==="
         ls -lh prebuilt/dtb/dtb.img
         echo "=== Vendor binaries ==="
@@ -74,6 +74,18 @@ jobs:
         echo "=== Modules ==="
         ls recovery/vendor/modules/
 
+    - name: Patch kernel.mk bug
+      run: |
+        cd workspace
+        if [ -f vendor/twrp/build/tasks/kernel.mk ]; then
+          echo "=== Patching kernel.mk ==="
+          echo "Line 594 before patch:"
+          sed -n '590,598p' vendor/twrp/build/tasks/kernel.mk
+          sed -i '594d' vendor/twrp/build/tasks/kernel.mk
+          echo "Line 594 after patch:"
+          sed -n '590,598p' vendor/twrp/build/tasks/kernel.mk
+        fi
+
     - name: Building TWRP
       run: |
         cd workspace
@@ -81,21 +93,21 @@ jobs:
         export LC_ALL="C"
         source build/envsetup.sh
         lunch twrp_NX809J-ap2a-eng
-        make clean
         make recoveryimage -j$(nproc --all)
 
     - name: Find recovery image
       run: |
-        echo "=== Looking for recovery.img ==="
-        find workspace/out -name "recovery.img" -o -name "boot.img" -o -name "*.img" 2>/dev/null | head -20
+        echo "=== Looking for recovery images ==="
+        find workspace/out -name "recovery.img" -o -name "boot.img" 2>/dev/null
         echo "=== Product directory ==="
-        ls workspace/out/target/product/ 2>/dev/null
+        ls -lh workspace/out/target/product/NX809J/*.img 2>/dev/null || echo "No .img files found"
+        ls workspace/out/target/product/NX809J/ 2>/dev/null || echo "Product dir not found"
 
     - name: Upload Recovery
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          workspace/out/target/product/NX809J/*.img
+          workspace/out/target/product/NX809J/recovery.img
         name: TWRP-NX809J-${{ github.run_id }}
         tag_name: ${{ github.run_id }}
         body: |
@@ -103,12 +115,15 @@ jobs:
           
           **WARNING: Unofficial build. Test before flashing!**
           
-          ### Important Note for A/B Devices
-          Your device may not have a dedicated recovery partition. If you see `vendor_boot.img` or `boot.img` in this release, that is your recovery.
-          
           ### Test (safe, temporary)
           ```
-          fastboot boot <filename>.img
+          fastboot boot recovery.img
+          ```
+          
+          ### Install (only after testing)
+          ```
+          fastboot flash recovery_a recovery.img
+          fastboot flash recovery_b recovery.img
           ```
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
