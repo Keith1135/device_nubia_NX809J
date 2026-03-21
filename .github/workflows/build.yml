@@ -78,7 +78,6 @@ jobs:
       run: |
         cd workspace
         if [ -f vendor/twrp/build/tasks/kernel.mk ]; then
-          echo "=== Patching kernel.mk ==="
           sed -i '594d' vendor/twrp/build/tasks/kernel.mk
         fi
 
@@ -109,22 +108,76 @@ jobs:
     - name: Fix fscrypt policy mismatch in libtar
       run: |
         cd workspace
-        # Find and patch libtar's build file to disable these specific errors
-        find bootable/recovery/libtar -name "*.bp" -o -name "*.mk" | while read f; do
-          echo "Found: $f"
-          cat "$f"
-        done
-        # Patch Android.bp to add permissive cflags
-        if [ -f bootable/recovery/libtar/Android.bp ]; then
-          sed -i '/cflags:/a\        "-Wno-error",\n        "-Wno-implicit-function-declaration",\n        "-Wno-incompatible-pointer-types",\n        "-Wno-int-conversion",' bootable/recovery/libtar/Android.bp
-          echo "=== Patched Android.bp ==="
-          cat bootable/recovery/libtar/Android.bp
-        fi
-        if [ -f bootable/recovery/libtar/Android.mk ]; then
-          echo 'LOCAL_CFLAGS += -Wno-error -Wno-implicit-function-declaration -Wno-incompatible-pointer-types -Wno-int-conversion' >> bootable/recovery/libtar/Android.mk
-          echo "=== Patched Android.mk ==="
-          tail -5 bootable/recovery/libtar/Android.mk
-        fi
+        python3 << 'PATCH'
+        import os
+        
+        # Patch append.c - wrap broken fscrypt block in #if 0
+        append_c = "bootable/recovery/libtar/append.c"
+        if os.path.exists(append_c):
+            with open(append_c, 'r') as f:
+                lines = f.readlines()
+            
+            patched = []
+            skip = False
+            for i, line in enumerate(lines):
+                if 'fscrypt_policy_get_struct' in line and not skip:
+                    # Find the start of the if block (might be one line before)
+                    patched.append('#if 0 // PATCHED: fscrypt v1/v2 mismatch\n')
+                    patched.append(line)
+                    skip = True
+                elif skip and ('descriptor = get_policy_descriptor' in line or 
+                              'lookup_ref_key' in line):
+                    patched.append(line)
+                elif skip and line.strip() == '}' and any('lookup_ref_key' in l for l in lines[max(0,i-20):i]):
+                    patched.append(line)
+                    patched.append('#endif // PATCHED\n')
+                    skip = False
+                else:
+                    patched.append(line)
+            
+            # If we didn't close the #endif, force close it
+            if skip:
+                patched.append('#endif // PATCHED\n')
+            
+            with open(append_c, 'w') as f:
+                f.writelines(patched)
+            
+            print("=== Patched append.c around fscrypt block ===")
+            # Show the patched area
+            with open(append_c, 'r') as f:
+                lines = f.readlines()
+            for i, line in enumerate(lines):
+                if 'PATCHED' in line or 'fscrypt_policy_get_struct' in line:
+                    start = max(0, i-2)
+                    end = min(len(lines), i+20)
+                    for j in range(start, end):
+                        print(f"{j+1}: {lines[j]}", end='')
+                    break
+        else:
+            print(f"ERROR: {append_c} not found!")
+        
+        # Also patch extract.c if it has the same issue
+        extract_c = "bootable/recovery/libtar/extract.c"
+        if os.path.exists(extract_c):
+            with open(extract_c, 'r') as f:
+                content = f.read()
+            if 'fscrypt_policy_v1' in content:
+                content = content.replace('fscrypt_policy_v1', 'fscrypt_policy_v2')
+                with open(extract_c, 'w') as f:
+                    f.write(content)
+                print("=== Patched extract.c v1->v2 ===")
+        
+        # Patch libtar.h
+        libtar_h = "bootable/recovery/libtar/include/libtar/libtar.h"
+        if os.path.exists(libtar_h):
+            with open(libtar_h, 'r') as f:
+                content = f.read()
+            if 'fscrypt_policy_v1' in content:
+                content = content.replace('fscrypt_policy_v1', 'fscrypt_policy_v2')
+                with open(libtar_h, 'w') as f:
+                    f.write(content)
+                print("=== Patched libtar.h v1->v2 ===")
+        PATCH
 
     - name: Building TWRP
       run: |
