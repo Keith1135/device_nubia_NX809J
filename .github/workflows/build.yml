@@ -31,7 +31,7 @@ jobs:
       uses: actions/setup-java@v4
       with:
         distribution: 'zulu'
-        java-version: '11'
+        java-version: '17'
 
     - name: Setup repo tool
       run: |
@@ -40,13 +40,14 @@ jobs:
         chmod a+x ~/bin/repo
         sudo ln -sf ~/bin/repo /usr/bin/repo
 
-    - name: Initialize TWRP minimal manifest
+    - name: Initialize TWRP manifest
       run: |
         mkdir -p workspace
         cd workspace
         git config --global user.name "GitHub Actions"
         git config --global user.email "actions@github.com"
-        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-14.1
+        repo init --depth=1 -u https://github.com/AuroraRecoveryProject/platform_manifest_twrp_aosp.git -b twrp-16.0 || \
+        repo init --depth=1 -u https://github.com/minimal-manifest-twrp/platform_manifest_twrp_aosp.git -b twrp-16.0
 
     - name: Repo Sync
       run: |
@@ -74,50 +75,13 @@ jobs:
         echo "=== Modules ==="
         ls recovery/vendor/modules/
 
-    - name: Patch kernel.mk bug
-      run: |
-        cd workspace
-        if [ -f vendor/twrp/build/tasks/kernel.mk ]; then
-          sed -i '594d' vendor/twrp/build/tasks/kernel.mk
-        fi
-
-    - name: Fix missing ninja dependencies
-      run: |
-        cd workspace
-        for dir in obj obj_arm; do
-          for lib in \
-            android.security.apc-ndk_platform \
-            android.system.keystore2-V1-ndk_platform \
-            android.security.aorigin-ndk_platform \
-            android.security.authorization-ndk_platform \
-            android.security.maintenance-ndk_platform \
-            android.system.keystore2-V3-ndk \
-            android.security.apc-ndk \
-            android.system.keystore2-V1-ndk \
-            android.security.authorization-ndk \
-            android.security.maintenance-ndk \
-            android.system.keystore2-V2-ndk \
-            android.system.keystore2-V2-ndk_platform \
-            android.system.keystore2-V3-ndk_platform \
-          ; do
-            mkdir -p out/target/product/NX809J/${dir}/SHARED_LIBRARIES/${lib}_intermediates
-            touch out/target/product/NX809J/${dir}/SHARED_LIBRARIES/${lib}_intermediates/${lib}.so.toc
-          done
-        done
-        
-    - name: Fix missing task_profiles
-      run: |
-        cd workspace
-        mkdir -p out/target/product/NX809J/system/etc
-        echo '{}' > out/target/product/NX809J/system/etc/task_profiles.json
-        
     - name: Building TWRP
       run: |
         cd workspace
         export ALLOW_MISSING_DEPENDENCIES=true
         export LC_ALL="C"
         source build/envsetup.sh
-        lunch twrp_NX809J-ap2a-eng
+        lunch twrp_NX809J-eng
         make recoveryimage -j$(nproc --all)
 
     - name: Find recovery image
@@ -138,7 +102,9 @@ jobs:
         body: |
           ## TWRP Recovery for Nubia Red Magic 11 Pro (NX809J)
           
-          **WARNING: Unofficial build — no decryption support yet. Test before flashing!**
+          **WARNING: Unofficial build. Test before flashing!**
+          
+          Built with twrp-16.0 (Android 16) manifest.
           
           ### Test (safe, temporary)
           ```
