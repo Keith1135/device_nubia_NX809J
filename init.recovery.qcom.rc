@@ -1,5 +1,7 @@
 # init.recovery.qcom.rc for TWRP - Nubia Red Magic 11 Pro (NX809J)
 
+import /init.recovery.qcom_decrypt.rc
+
 on early-init
     mkdir /firmware 0771 system system
     mkdir /bt_firmware 0771 system system
